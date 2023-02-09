@@ -2,6 +2,8 @@ build_lib(
   LIBNAME applications
   SOURCE_FILES
     helper/bulk-send-helper.cc
+    helper/cybertwin-edge-server-helper.cc
+    helper/cybertwin-test-client-helper.cc
     helper/on-off-helper.cc
     helper/packet-sink-helper.cc
     helper/three-gpp-http-helper.cc
@@ -9,6 +11,9 @@ build_lib(
     helper/udp-echo-helper.cc
     model/application-packet-probe.cc
     model/bulk-send-application.cc
+    model/cybertwin-access-header.cc
+    model/cybertwin-edge-server.cc
+    model/cybertwin-test-client.cc
     model/onoff-application.cc
     model/packet-loss-counter.cc
     model/packet-sink.cc
@@ -26,6 +31,8 @@ build_lib(
     model/udp-trace-client.cc
   HEADER_FILES
     helper/bulk-send-helper.h
+    helper/cybertwin-edge-server-helper.h
+    helper/cybertwin-test-client-helper.h
     helper/on-off-helper.h
     helper/packet-sink-helper.h
     helper/three-gpp-http-helper.h
@@ -33,6 +40,9 @@ build_lib(
     helper/udp-echo-helper.h
     model/application-packet-probe.h
     model/bulk-send-application.h
+    model/cybertwin-access-header.h
+    model/cybertwin-edge-server.h
+    model/cybertwin-test-client.h
     model/onoff-application.h
     model/packet-loss-counter.h
     model/packet-sink.h
