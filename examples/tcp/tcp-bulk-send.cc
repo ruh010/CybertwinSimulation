@@ -31,17 +31,28 @@
 #include "ns3/point-to-point-module.h"
 
 #include <fstream>
+#include <iostream>
 #include <string>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("TcpBulkSendExample");
 
+void
+ReceivePacket(Ptr<const Packet> pkt,
+              const Address& from,
+              const Address& dst,
+              const SeqTsSizeHeader& header)
+{
+    std::cout << "Rx pkt from " << from << " to " << dst << " -> " << header << std::endl;
+}
+
 int
 main(int argc, char* argv[])
 {
     bool tracing = false;
     uint32_t maxBytes = 0;
+    Packet::EnablePrinting();
 
     //
     // Allow the user to override any of the defaults at
@@ -95,6 +106,7 @@ main(int argc, char* argv[])
     BulkSendHelper source("ns3::TcpSocketFactory", InetSocketAddress(i.GetAddress(1), port));
     // Set the amount of data to send in bytes.  Zero is unlimited.
     source.SetAttribute("MaxBytes", UintegerValue(maxBytes));
+    source.SetAttribute("EnableSeqTsSizeHeader", BooleanValue(true));
     ApplicationContainer sourceApps = source.Install(nodes.Get(0));
     sourceApps.Start(Seconds(0.0));
     sourceApps.Stop(Seconds(10.0));
@@ -103,7 +115,9 @@ main(int argc, char* argv[])
     // Create a PacketSinkApplication and install it on node 1
     //
     PacketSinkHelper sink("ns3::TcpSocketFactory", InetSocketAddress(Ipv4Address::GetAny(), port));
+    sink.SetAttribute("EnableSeqTsSizeHeader", BooleanValue(true));
     ApplicationContainer sinkApps = sink.Install(nodes.Get(1));
+    sinkApps.Get(0)->TraceConnectWithoutContext("RxWithSeqTsSize", MakeCallback(ReceivePacket));
     sinkApps.Start(Seconds(0.0));
     sinkApps.Stop(Seconds(10.0));
 

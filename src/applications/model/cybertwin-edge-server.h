@@ -10,7 +10,8 @@
 #include "ns3/seq-ts-size-header.h"
 #include "ns3/traced-callback.h"
 
-#endif
+#include <string>
+#include <unordered_map>
 
 namespace ns3
 {
@@ -33,19 +34,69 @@ class CybertwinEdgeServer : public Application
     void StartApplication() override;
     void StopApplication() override;
 
-    void HandleRead(Ptr<Socket> socket);
-    void HandleAccept(Ptr<Socket> socket, const Address& from);
-    void HandlePeerClose(Ptr<Socket> socket);
-    void HandlePeerError(Ptr<Socket> socket);
+    bool ConnectionRequestCallback(Ptr<Socket> socket, const Address& address);
+    void NewConnectionCreatedCallback(Ptr<Socket> socket, const Address& address);
 
-    void PacketReceived(const Ptr<Packet>& p, const Address& from, const Address& localAddress);
+    void NormalCloseCallback(Ptr<Socket> socket);
+    void ErrorCloseCallback(Ptr<Socket> socket);
+
+    void ReceivedDataCallback(Ptr<Socket> socket);
 
     Ptr<Socket> m_socket;
-    std::list<Ptr<Socket>> m_socketList;
+    Ptr<CybertwinControlTable> m_controlTable;
 
     Address m_local;
     uint16_t m_localPort;
     TypeId m_tid;
 };
 
+class CybertwinControlTable
+{
+  public:
+    CybertwinControlTable();
+
+    Ptr<CybertwinItem> Get(Ptr<Socket>);
+
+    void Connect(Ptr<Socket>);
+    void Disconnect(Ptr<Socket>);
+
+    bool IsSocketConnected(Ptr<Socket>);
+
+    void DoDispose();
+
+  private:
+    std::unordered_map<Ptr<Socket>, Ptr<CybertwinItem>> m_cybertwinTable;
+    std::unordered_map<uint64_t, Ptr<Socket>> m_guidTable;
+};
+
+class CybertwinItem
+{
+  public:
+    CybertwinItem();
+
+    void PacketReceived(Ptr<Socket>);
+    void AddSocket(Ptr<Socket>, uint64_t);
+    uint32_t RemoveSocket(Ptr<Socket>);
+
+    uint64_t GetInitialGuid() const;
+
+  private:
+    struct StreamState
+    {
+        uint32_t m_bytesToBeReceived;
+        uint64_t m_dst;
+
+        StreamState(uint64_t dst)
+            : m_dst(dst),
+              m_bytesToBeReceived(0)
+        {
+        }
+    };
+
+    std::unordered_map<Ptr<Socket>, StreamState> m_receiveStream;
+    uint64_t m_initialGuid;
+};
+
 } // namespace ns3
+
+#endif

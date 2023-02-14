@@ -267,6 +267,7 @@ PacketSink::PacketReceived(const Ptr<Packet>& p, const Address& from, const Addr
     buffer->PeekHeader(header);
 
     NS_ABORT_IF(header.GetSize() == 0);
+    NS_LOG_INFO("packet content:" << p->ToString() << buffer->GetSize() << header.GetSize());
 
     while (buffer->GetSize() >= header.GetSize())
     {

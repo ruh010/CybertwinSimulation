@@ -1,8 +1,9 @@
 #include "cybertwin-edge-server.h"
 
-#include "cybertwin-access-header.h"
+#include "cybertwin-packet-header.h"
 
 #include "ns3/address.h"
+#include "ns3/boolean.h"
 #include "ns3/inet-socket-address.h"
 #include "ns3/inet6-socket-address.h"
 #include "ns3/ipv4-packet-info-tag.h"
@@ -40,30 +41,17 @@ CybertwinEdgeServer::GetTypeId()
 }
 
 CybertwinEdgeServer::CybertwinEdgeServer()
+    : m_socket(nullptr)
 {
-    NS_LOG_FUNCTION(this);
-    m_socket = nullptr;
 }
 
 CybertwinEdgeServer::~CybertwinEdgeServer()
 {
-    NS_LOG_FUNCTION(this);
-}
-
-void
-CybertwinEdgeServer::DoDispose()
-{
-    NS_LOG_FUNCTION(this);
-    m_socket = nullptr;
-    m_socketList.clear();
-
-    Application::DoDispose();
 }
 
 void
 CybertwinEdgeServer::StartApplication()
 {
-    NS_LOG_FUNCTION(this);
     if (!m_socket)
     {
         m_socket = Socket::CreateSocket(GetNode(), m_tid);
@@ -88,116 +76,165 @@ CybertwinEdgeServer::StartApplication()
         m_localPort = 0;
     }
 
-    m_socket->SetRecvCallback(MakeCallback(&CybertwinEdgeServer::HandleRead, this));
-    m_socket->SetRecvPktInfo(true);
-    m_socket->SetAcceptCallback(MakeNullCallback<bool, Ptr<Socket>, const Address&>(),
-                                MakeCallback(&CybertwinEdgeServer::HandleAccept, this));
-    m_socket->SetCloseCallbacks(MakeCallback(&CybertwinEdgeServer::HandlePeerClose, this),
-                                MakeCallback(&CybertwinEdgeServer::HandlePeerError, this));
+    m_socket->SetAcceptCallback(
+        MakeCallback(&CybertwinEdgeServer::ConnectionRequestCallback, this),
+        MakeCallback(&CybertwinEdgeServer::NewConnectionCreatedCallback, this));
+    m_socket->SetCloseCallbacks(MakeCallback(&CybertwinEdgeServer::NormalCloseCallback, this),
+                                MakeCallback(&CybertwinEdgeServer::ErrorCloseCallback, this));
+    m_socket->SetRecvCallback(MakeCallback(&CybertwinEdgeServer::ReceivedDataCallback, this));
 }
 
 void
 CybertwinEdgeServer::StopApplication()
 {
-    while (!m_socketList.empty())
-    {
-        Ptr<Socket> acceptedSocket = m_socketList.front();
-        m_socketList.pop_front();
-        acceptedSocket->Close();
-    }
+    m_controlTable->DoDispose();
     if (m_socket)
     {
         m_socket->Close();
+        m_socket->SetAcceptCallback(MakeNullCallback<bool, Ptr<Socket>, const Address&>(),
+                                    MakeNullCallback<void, Ptr<Socket>, const Address&>());
+        m_socket->SetCloseCallbacks(MakeNullCallback<void, Ptr<Socket>>(),
+                                    MakeNullCallback<void, Ptr<Socket>>());
         m_socket->SetRecvCallback(MakeNullCallback<void, Ptr<Socket>>());
     }
 }
 
+bool
+CybertwinEdgeServer::ConnectionRequestCallback(Ptr<Socket> socket, const Address& address)
+{
+    return true;
+}
+
 void
-CybertwinEdgeServer::HandleRead(Ptr<Socket> socket)
+CybertwinEdgeServer::NewConnectionCreatedCallback(Ptr<Socket> socket, const Address& address)
+{
+    socket->SetCloseCallbacks(MakeCallback(&CybertwinEdgeServer::NormalCloseCallback, this),
+                              MakeCallback(&CybertwinEdgeServer::ErrorCloseCallback, this));
+    socket->SetRecvCallback(MakeCallback(&CybertwinEdgeServer::ReceivedDataCallback, this));
+    ReceivedDataCallback(socket);
+}
+
+void
+CybertwinEdgeServer::NormalCloseCallback(Ptr<Socket> socket)
+{
+}
+
+void
+CybertwinEdgeServer::ReceivedDataCallback(Ptr<Socket> socket)
+{
+    if (!m_controlTable->IsSocketConnected(socket))
+    {
+        m_controlTable->Connect(socket);
+    }
+    Ptr<CybertwinItem> cybertwin = m_controlTable->Get(socket);
+    cybertwin->PacketReceived(socket);
+}
+
+CybertwinControlTable::CybertwinControlTable(){};
+
+bool
+CybertwinControlTable::IsSocketConnected(Ptr<Socket> socket)
+{
+    return m_cybertwinTable.find(socket) != m_cybertwinTable.end();
+}
+
+Ptr<CybertwinItem>
+CybertwinControlTable::Get(Ptr<Socket> socket)
+{
+    return m_cybertwinTable.find(socket)->second;
+}
+
+void
+CybertwinControlTable::Connect(Ptr<Socket> socket)
+{
+    Ptr<Packet> packet;
+    CybertwinPacketHeader header;
+
+    packet = socket->Recv();
+    packet->PeekHeader(header);
+
+    if (packet->GetSize() == header.GetSerializedSize() && header.GetCmd() == 0)
+    {
+        uint64_t guid = header.GetSrc();
+        Ptr<CybertwinItem> cybertwin;
+        if (m_guidTable.find(guid) == m_guidTable.end())
+        {
+            cybertwin = Create<CybertwinItem>();
+            m_guidTable.insert(std::make_pair(guid, socket));
+        }
+        else
+        {
+            Ptr<Socket> existedSocket = m_guidTable.find(guid)->second;
+            cybertwin = m_cybertwinTable.find(existedSocket)->second;
+        }
+        cybertwin->AddSocket(socket, guid);
+        m_cybertwinTable.insert(std::make_pair(socket, cybertwin));
+    }
+    else
+    {
+        NS_FATAL_ERROR("Failed to connect: invalid packet header");
+    }
+}
+
+void
+CybertwinControlTable::Disconnect(Ptr<Socket> socket)
+{
+    if (IsSocketConnected(socket))
+    {
+        Ptr<CybertwinItem> cybertwin = Get(socket);
+        if (cybertwin->RemoveSocket(socket) == 0)
+        {
+            uint64_t guidToRemove = cybertwin->GetInitialGuid();
+            m_guidTable.erase(guidToRemove);
+        }
+        m_cybertwinTable.erase(socket);
+        socket->ShutdownSend();
+        socket->ShutdownRecv();
+    }
+    else
+    {
+        NS_FATAL_ERROR("Failed to disconnect: socket not connected");
+    }
+}
+
+CybertwinItem::CybertwinItem(){};
+
+void
+CybertwinItem::AddSocket(Ptr<Socket> socket, uint64_t guid)
+{
+    if (m_receiveStream.begin() == m_receiveStream.end())
+    {
+        m_initialGuid = guid;
+    }
+    m_receiveStream.insert(std::make_pair(socket, StreamState(guid)));
+}
+
+uint32_t
+CybertwinItem::RemoveSocket(Ptr<Socket> socket)
+{
+    m_receiveStream.erase(socket);
+    return m_receiveStream.size();
+}
+
+void
+CybertwinItem::PacketReceived(Ptr<Socket> socket)
 {
     Ptr<Packet> packet;
     Address from;
-    Address localAddress;
+
     while ((packet = socket->RecvFrom(from)))
     {
         if (packet->GetSize() == 0)
         {
             break;
         }
-        if (InetSocketAddress::IsMatchingType(from))
-        {
-            NS_LOG_INFO("At time " << Simulator::Now().As(Time::S) << " edge server received "
-                                   << packet->GetSize() << " bytes from "
-                                   << InetSocketAddress::ConvertFrom(from).GetIpv4() << " port "
-                                   << InetSocketAddress::ConvertFrom(from).GetPort());
-        }
-        else if (Inet6SocketAddress::IsMatchingType(from))
-        {
-            NS_LOG_INFO("At time " << Simulator::Now().As(Time::S) << " edge server received "
-                                   << packet->GetSize() << " bytes from "
-                                   << Inet6SocketAddress::ConvertFrom(from).GetIpv6() << " port "
-                                   << Inet6SocketAddress::ConvertFrom(from).GetPort());
-        }
-
-        CybertwinAccessHeader header;
-        packet->PeekHeader(header);
-
-        NS_LOG_ERROR("Received Source GUID:" << header.GetSrcGUID()
-                                             << " Destination GUID:" << header.GetDstGUID()
-                                             << " Command:" << header.GetCommand());
-
-        NS_LOG_ERROR(packet->ToString());
-
-        // Ipv4PacketInfoTag interfaceInfo;
-        // Ipv6PacketInfoTag interface6Info;
-        // if (packet->RemovePacketTag(interfaceInfo))
-        // {
-        //     localAddress = InetSocketAddress(interfaceInfo.GetAddress(), m_localPort);
-        // }
-        // else if (packet->RemovePacketTag(interface6Info))
-        // {
-        //     localAddress = Inet6SocketAddress(interface6Info.GetAddress(), m_localPort);
-        // }
-        // else
-        // {
-        //     socket->GetSockName(localAddress);
-        // }
-
-        // PacketReceived(packet, from, localAddress);
     }
 }
 
-void
-CybertwinEdgeServer::PacketReceived(const Ptr<Packet>& p,
-                                    const Address& from,
-                                    const Address& localAddress)
+uint64_t
+CybertwinItem::GetInitialGuid() const
 {
-    CybertwinAccessHeader header;
-    uint32_t headerSize = p->PeekHeader(header);
-
-    NS_LOG_ERROR("Received " << headerSize << "bytes of header, Source GUID:" << header.GetSrcGUID()
-                             << " Destination GUID:" << header.GetDstGUID()
-                             << " Command:" << header.GetCommand());
-}
-
-void
-CybertwinEdgeServer::HandlePeerClose(Ptr<Socket> socket)
-{
-    NS_LOG_FUNCTION(this << socket);
-}
-
-void
-CybertwinEdgeServer::HandlePeerError(Ptr<Socket> socket)
-{
-    NS_LOG_FUNCTION(this << socket);
-}
-
-void
-CybertwinEdgeServer::HandleAccept(Ptr<Socket> s, const Address& from)
-{
-    NS_LOG_FUNCTION(this << s << from);
-    s->SetRecvCallback(MakeCallback(&CybertwinEdgeServer::HandleRead, this));
-    m_socketList.push_back(s);
+    return m_initialGuid;
 }
 
 } // namespace ns3

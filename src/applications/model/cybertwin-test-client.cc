@@ -19,7 +19,7 @@
 
 #include "cybertwin-test-client.h"
 
-#include "cybertwin-access-header.h"
+#include "cybertwin-packet-header.h"
 
 #include "ns3/address.h"
 #include "ns3/boolean.h"
@@ -203,21 +203,21 @@ CybertwinTestClient::SendData(const Address& from, const Address& to)
 {
     NS_LOG_FUNCTION(this);
     Ptr<Packet> packet;
-    CybertwinAccessHeader header;
-    header.SetSrcGUID(2023);
-    header.SetDstGUID(2777);
-    header.SetCommand(5);
-    packet = Create<Packet>(600 - header.GetSerializedSize());
-    packet->AddHeader(header);
+    // CybertwinAccessHeader header;
+    // header.SetSrcGUID(2023);
+    // header.SetDstGUID(2777);
+    // header.SetCommand(5);
+    // packet = Create<Packet>(600 - header.GetSerializedSize());
+    // packet->AddHeader(header);
 
-    CybertwinAccessHeader peekHeader;
-    packet->PeekHeader(peekHeader);
-    NS_LOG_ERROR("Source GUID:" << peekHeader.GetSrcGUID()
-                                << " Destination GUID:" << peekHeader.GetDstGUID()
-                                << " Command:" << peekHeader.GetCommand());
-    m_socket->Send(packet);
-    m_socket->Close();
-    m_connected = false;
+    // CybertwinAccessHeader peekHeader;
+    // packet->PeekHeader(peekHeader);
+    // NS_LOG_ERROR("Source GUID:" << peekHeader.GetSrcGUID()
+    //                             << " Destination GUID:" << peekHeader.GetDstGUID()
+    //                             << " Command:" << peekHeader.GetCommand());
+    // m_socket->Send(packet);
+    // m_socket->Close();
+    // m_connected = false;
 }
 
 void

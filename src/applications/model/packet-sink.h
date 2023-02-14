@@ -167,17 +167,17 @@ class PacketSink : public Application
          * It works only for InetSocketAddresses (IPv4 version) or Inet6SocketAddresses (IPv6
          * version)
          */
-        size_t operator()(const Address& x) const
+        uint64_t operator()(const Address& x) const
         {
             if (InetSocketAddress::IsMatchingType(x))
             {
                 InetSocketAddress a = InetSocketAddress::ConvertFrom(x);
-                return Ipv4AddressHash()(a.GetIpv4());
+                return Ipv4AddressHash()(a.GetIpv4()) << 32 | a.GetPort();
             }
             else if (Inet6SocketAddress::IsMatchingType(x))
             {
                 Inet6SocketAddress a = Inet6SocketAddress::ConvertFrom(x);
-                return Ipv6AddressHash()(a.GetIpv6());
+                return Ipv6AddressHash()(a.GetIpv6()) << 32 | a.GetPort();
             }
 
             NS_ABORT_MSG("PacketSink: unexpected address type, neither IPv4 nor IPv6");
